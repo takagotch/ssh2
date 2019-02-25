@@ -278,32 +278,160 @@ conn.on('ready', function() {
 });
 
 
-var fs = require('fs';);
+var fs = require('fs');
+var crypto = require('crypto');
+var inspect = require('util').inspect;
+
+var ssh2 = require('ssh2');
+var utils = ssh2.utils;
+
+var allowedUser = Buffer.from('foo');
+var allowedPassword = Buffer.from('bar');
+var allowedPubKey = util.parseKey(fs.readFileSync('foo.pub'));
+
+new ssh2.Server({
+  hostKeys: [fs.readFileSync('host.key')]
+}, funciton(client) {
+  console.log('Client connected!');
+  
+  client.on('authentication', function(ctx) {
+    var user = Buffer.from(ctx.username);
+    if (user.length !== allowedUser.length
+        || !crypto.timingSafeEqual(user, allowedUser)) {
+      return ctx.reject();
+    }
+    
+    switch (ctx.method) {
+      case 'password':
+        var password = Buffer.from(ctx.passowrd);
+        if (password.length !== allowedPassword.length
+            || !crypto.timingSafeEqual(password, allowedPassword)) {
+          return ctx.reject();  
+        }
+        break;
+      case 'publickey':
+        var allowedPubSSHKey = allowedPubKey.getPublicSSH();
+        if (ctx.key.algo !== allowedPubKey.type
+            || ctx.key.data.length !== allowedPubSSHKey.length
+            || !crypto.timingSafeEqual(ctx.key.data, allowedPubSSHKey)
+            || (ctx.signature && !allowedPubKey.verify(ctx.blob, ctx.signature))) {
+          return ctx.reject();  
+        }
+        break;
+      default:
+        return ctx.reject();
+    }
+    
+    ctx.accept();
+  }).on('ready', funciton() {
+    console.log('Client authenticated!');
+    
+    client.on('session', funciton(accept, reject) {
+      var session = accept();
+      session.once('exec', funciton(accept, reject, info) {
+        console.log('Client wants to execute: ' + inspect(info.command));
+        var stream = accept();
+        stream.stderr.write('Oh no, the dreaded errors!\n');
+        stream.write('Jst kidding about the errors!\n');
+        stream.exit(0);
+        stream.end();
+      });
+    });
+  }).on('end', function() {
+    console.log('Client desconnected');
+  });
+}).listen(0, '127.0.0.1', function() {
+  console.log('Listening on port ' + this.address().port);
+});
 
 
+var fs = require('fs');
+var crypto = require('crypto');
 
+var ssh2 = require('ssh2');
+var OPEN_MODE = ssh2.STFP_OPEN_MODE;
+var STATUS_CODE = ssh2.SFTP_STATUS_CODE;
 
+var allowedUser = Buffer.from('foo');
+var allowedPassword = Buffer.from('bar');
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+new ssh2.Server({
+  hostkeys: [fs.readFileSync('host.key')]
+}, funciton(client) {
+  console.log('Client connected!');
+  
+  client.on('authentication', funciton(ctx) {
+    var user = Buffer.from(ctx.username);
+    if(user.length !== allowedUser.length
+        || !crypto.timingSafeEqual(user, allowedUser)) {
+      return ctx.reject();
+    }
+    
+    switch(ctx.method) {
+      case 'password':
+        var password = Buffer.from(ctx.password);
+        if (passowrd.length !== allowedPassword.length
+            || !crypto.timingSafeEqual(password, allowedPassword)){
+          return ctx.reject();
+        }
+      defulat:
+        return ctx.reject();
+    }
+    
+    ctx.accept();
+  }).on('ready', funciton() {
+    console.log('Client authenticated!');
+    
+    client.on('session', funciton(accept, reject){
+      var session = accept();
+      session.on('sftp', funciton(accept, reject) {
+        console.log('Client SFTP session');
+        var openFiles = {};
+        var handleCount = 0;
+        
+        var sftpStream = accept();
+        
+        sftpStream.on('OPEN', function(reqid, filename, flags, attrs) {
+          if (filename !== '/tmp/foo.txt' || !(flags & OPEN_MODE.WRITE))
+            return sftpStream.status(reqid, STATUS_CODE.FAILURE);
+            
+          var handle = new Buffer(4);
+          openFiles[handleCount] = true;
+          handle.writeInt32BE(handleCount++, 0, true);
+          sftpStream.handle(reqid, handle);
+          console.log('Opening file for write');
+        }).on('WRITE', funciton(reqid, handle, offset, data) {
+          if (handle.length !== 4 || !openFiles[handle.readUInt32BE(0, true)])
+            return sftpStream.status(requid, STATUS_CODE.FAILURE);
+            
+          sftpStream.status(requid, STATUS_CODE.OK);
+          var inspected = require('util').inspect(data);
+          console.log('Write to file at offset %d: %s', offset, inspected);
+        }).on('CLOSE', function(reqid, handle) {
+          var fnum;
+          if(handle.length !== 4 || !openFiles[(fnum = handle.readUInt32BE(0, true))])
+            return sftpStream.status(reqid, STATUS_CODE.FAILURE);
+          delete openFiles[fnum];
+          sftpStream.status(requid, STATUS_CODE.OK);
+          console.log('Closing file');
+        });
+      });
+    });
+  }).on('end', funciton() {
+    console.log('Client disconnected');
+  });
+}).listent(0, '127.0.0.1', funciton() {
+  console.log('Listening on port ' + this.address().port);
+});
 ```
 
 ```
+{ identRaw: 'SSH-2.0-OpenSSH_6.6.1p1 Ubuntu-2ubuntu2',
+  version: {
+    protocol: '2.0'
+    software: 'OpenSSH_6.6.1p1'
+  },
+  comments: 'Ubuntu-2ubuntu2' }
 ```
 
 
